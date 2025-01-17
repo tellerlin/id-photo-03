@@ -5,11 +5,11 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import 'cropperjs/dist/cropper.css';
 import './globals.css';
-import { removeBackground } from '@imgly/background-removal';
-import Image from 'next/image';
+import { removeBackground, Config } from '@imgly/background-removal';
+import Image from 'next/legacy/image'  // For Next.js 13 and above
 import dynamic from 'next/dynamic';
 import { ErrorBoundary } from 'react-error-boundary';
-import outline from '/public/outline.png';
+import outline from '../../public/outline.png';
 import type { Cropper } from 'react-cropper';
 import { AspectRatioOption, ColorOption, ImageInfo, CropData, ScaleFactors } from '@/types';
 
@@ -29,6 +29,11 @@ function ErrorFallback({error}: {error: Error}) {
     );
 }
 
+// In your types file or at the top of the component
+interface SafeImage extends HTMLImageElement {
+    src?: string;
+}
+
 
 export default function App() {
     const [image, setImage] = useState<string | null>(null);
@@ -42,11 +47,30 @@ export default function App() {
     const [imageKey, setImageKey] = useState<number>(0);
     const [cropperKey, setCropperKey] = useState<number>(0);
     const cropperRef = useRef<Cropper | null>(null);
-    const imageRef = useRef<HTMLImageElement>(new Image());
+    const imageRef = useRef<SafeImage | null>(null);
     const lastProcessedImageData = useRef<ImageInfo | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement | null>(document.createElement('canvas') as HTMLCanvasElement);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const scaleRef = useRef<ScaleFactors>({ scaleX: 1, scaleY: 1 });
 
+
+    useEffect(() => {
+        if (!canvasRef.current) {
+            canvasRef.current = document.createElement('canvas') as HTMLCanvasElement;
+        }
+    }, []);
+
+    // Use a function to create the Image safely
+    useEffect(() => {
+        const createImageElement = () => {
+            // Check if window is defined (client-side only)
+            if (typeof window !== 'undefined') {
+                const img = new window.Image(); // Explicitly use window.Image
+                imageRef.current = img;
+            }
+        };
+
+        createImageElement();
+    }, []);
 
 
     const aspectRatioOptions = useMemo<AspectRatioOption[]>(() => [
@@ -75,7 +99,7 @@ export default function App() {
 
     const intelligentCrop = useMemo(() => (img: HTMLImageElement, selectedAspectRatio: number, scaleX: number, scaleY: number): CropData => {
         const canvas = canvasRef.current;
-         if (!canvas) {
+        if (!canvas) {
            return { left: 0, top: 0, width: 0, height: 0 };
         }
         canvas.width = img.width;
@@ -210,10 +234,14 @@ export default function App() {
         setSelectedAspectRatio(newAspectRatio);
         setCropperKey(prevKey => prevKey + 1);
 
-        if (imageRef.current.src) {
+         if (imageRef.current?.src) {
             setTimeout(() => {
                 if (cropperRef.current?.cropper) {
-                    const img = imageRef.current;
+                     const img = imageRef.current;
+                     if (!img) {
+                         console.warn('Image element not initialized');
+                         return;
+                     }
                     const autoCropData = intelligentCrop(img, newAspectRatio, scaleRef.current.scaleX, scaleRef.current.scaleY);
                     const imageData = cropperRef.current.cropper.getImageData();
                     const canvasData = cropperRef.current.cropper.getCanvasData();
@@ -232,7 +260,7 @@ export default function App() {
     }, [image, intelligentCrop]);
 
 
-    const memoizedHandleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const memoizedHandleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
@@ -258,7 +286,12 @@ export default function App() {
             }
 
 
-            const blob = await removeBackground(file);
+            const config: Config = {
+                model: 'medium',
+            };
+
+
+            const blob = await removeBackground(file, config);
 
 
             if (!blob) {
@@ -276,35 +309,41 @@ export default function App() {
                     const safeDataURL = reader.result.startsWith('data:image')
                         ? reader.result
                         : `data:image/png;base64,${reader.result}`;
-                    imageRef.current.onload = () => {
-                        const img = imageRef.current;
-                        if (process.env.NODE_ENV !== 'production') {
-                            console.log('Image Loaded Details:', {
-                                width: img.width,
-                                height: img.height,
-                                aspectRatio: img.width / img.height
-                            });
-                        }
 
+                     const img = imageRef.current;
+                     if (!img) {
+                       reject(new Error('Image element not initialized'));
+                       return;
+                     }
 
-                        const canvas = canvasRef.current;
-                         if (!canvas) {
-                           reject(new Error('Canvas element not found'));
-                           return;
+                    img.onload = () => {
+                         if (process.env.NODE_ENV !== 'production') {
+                             console.log('Image Loaded Details:', {
+                                 width: img.width,
+                                 height: img.height,
+                                 aspectRatio: img.width / img.height
+                             });
                          }
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        const ctx = canvas.getContext('2d');
-                           if (!ctx) {
+
+
+                         const canvas = canvasRef.current;
+                           if (!canvas) {
+                             reject(new Error('Canvas element not found'));
+                             return;
+                           }
+                         canvas.width = img.width;
+                         canvas.height = img.height;
+                         const ctx = canvas.getContext('2d');
+                         if (!ctx) {
                            reject(new Error('2D rendering context not found'));
                            return;
                          }
-                        ctx.drawImage(img, 0, 0);
+                         ctx.drawImage(img, 0, 0);
 
-                        const finalDataURL = canvas.toDataURL('image/png');
-                        setImage(finalDataURL);
-                        setProcessedImage(finalDataURL);
-                        setCroppedImage(finalDataURL);
+                         const finalDataURL = canvas.toDataURL('image/png');
+                         setImage(finalDataURL);
+                         setProcessedImage(finalDataURL);
+                         setCroppedImage(finalDataURL);
 
                         lastProcessedImageData.current = {
                             dataURL: finalDataURL,
@@ -374,27 +413,28 @@ export default function App() {
                             setShowSuccessMessage(false);
                         }, 3000);
 
-                        if (process.env.NODE_ENV !== 'production') {
+                         if (process.env.NODE_ENV !== 'production') {
                             console.timeEnd('TotalProcessingTime');
                             console.groupEnd();
-                        }
-                        resolve();
+                         }
+                         resolve();
                     };
-
-                    imageRef.current.onerror = () => {
-                        console.error('Image Loading Failed');
+                    img.onerror = (error) => {
+                        console.error('Image Loading Failed', error);
                         setIsProcessing(false);
                         setProcessingMessage('Image loading failed.');
                         reject(new Error('Image loading failed'));
                     };
-                    imageRef.current.src = safeDataURL;
-                };
-                reader.onerror = () => {
+
+                    img.src = safeDataURL;
+                 };
+                 reader.onerror = () => {
                     console.error('File Reading Failed');
                     setIsProcessing(false);
                     setProcessingMessage('File reading failed.');
                     reject(new Error('File reading failed'));
                 };
+
                 reader.readAsDataURL(blob);
             });
         } catch (error: any) {
@@ -419,19 +459,19 @@ export default function App() {
 
             setCorrectionImage(croppedImageDataURL);
 
-            const img = new Image();
-            img.onload = () => {
-                const canvas = canvasRef.current;
-                 if (!canvas) {
-                   console.error('Canvas element not found');
-                    return;
-                 }
+           const img = new Image();
+           img.onload = () => {
+                 const canvas = canvasRef.current;
+                if (!canvas) {
+                 console.error('Canvas element not found');
+                  return;
+                }
                 canvas.width = img.width;
                 canvas.height = img.height;
                 const ctx = canvas.getContext('2d');
-                 if (!ctx) {
-                   console.error('2D rendering context not found');
-                    return;
+                if (!ctx) {
+                  console.error('2D rendering context not found');
+                  return;
                 }
 
                 if (lastProcessedImageData.current?.backgroundColor) {
@@ -445,7 +485,12 @@ export default function App() {
                 const finalImageDataURL = canvas.toDataURL('image/png');
                 setCroppedImage(finalImageDataURL);
             };
-            img.src = croppedImageDataURL;
+            img.onerror = (error) => {
+               console.error('Error loading cropped image', error);
+               setProcessingMessage('Error loading cropped image');
+            };
+             img.src = croppedImageDataURL;
+
 
         } catch (error: any) {
             console.error('Error updating preview:', error);
@@ -490,9 +535,9 @@ export default function App() {
                 height: cropper.getImageData().naturalHeight,
             });
             const canvas = canvasRef.current;
-             if (!canvas) {
-               console.error('Canvas element not found');
-               return;
+            if (!canvas) {
+              console.error('Canvas element not found');
+              return;
             }
             canvas.width = croppedCanvas.width;
             canvas.height = croppedCanvas.height;
@@ -531,13 +576,66 @@ export default function App() {
         }
     }, [image]);
 
-    useEffect(() => {
-        if (!imageRef.current) {
-            imageRef.current = new Image();
-        }
-    }, []);
 
     const memoizedIntelligentCrop = useMemo(() => intelligentCrop, [intelligentCrop]);
+
+
+    useEffect(() => {
+        console.log('Image state changed:', {
+            image,
+            imageRefCurrent: imageRef.current,
+            imageRefSrc: imageRef.current?.src
+        });
+        if (image) {
+            try {
+                 const img = imageRef.current;
+                if (!img) {
+                   console.warn('Image element not initialized');
+                  return;
+                }
+
+
+                img.src = image;
+                 img.onload = () => {
+                    if (cropperRef.current?.cropper) {
+                        const autoCropData = memoizedIntelligentCrop(img, selectedAspectRatio, scaleRef.current.scaleX, scaleRef.current.scaleY);
+                        const scaledCropData = {
+                            left: autoCropData.left * scaleRef.current.scaleX,
+                            top: autoCropData.top * scaleRef.current.scaleY,
+                            width: autoCropData.width * scaleRef.current.scaleX,
+                            height: autoCropData.height * scaleRef.current.scaleY
+                        };
+                        cropperRef.current.cropper.setCropBoxData(scaledCropData);
+                    }
+                };
+
+                img.onerror = (error) => {
+                    console.error('Image load error:', error);
+                    setProcessingMessage('Failed to load image.');
+                     setTimeout(() => {
+                         setProcessingMessage('');
+                    }, 3000);
+                   setImage(null);
+                   setProcessedImage(null);
+                   setCroppedImage(null);
+                   setCorrectionImage(null);
+                };
+
+            } catch (error) {
+                console.error('Image processing error:', error);
+                 setProcessingMessage('Failed to process image.');
+                 setTimeout(() => {
+                         setProcessingMessage('');
+                    }, 3000);
+                 setImage(null);
+                 setProcessedImage(null);
+                 setCroppedImage(null);
+                setCorrectionImage(null);
+             }
+        }
+    }, [image, memoizedIntelligentCrop, selectedAspectRatio]);
+
+
 
 
     return (
@@ -678,7 +776,7 @@ export default function App() {
                                             style={{ opacity: 0.5 }}
                                             width={200}
                                             height={200}
-                                            loading='lazy'
+                                           loading='lazy'
                                         />
                                     </div>
                                 </div>
@@ -720,9 +818,9 @@ export default function App() {
                                     }}
                                     onClick={() => handleBackgroundChange(color.value)}
                                     disabled={isProcessing}
-                                >
-                                    {color.name}
-                                </button>
+                            >
+                                {color.name}
+                            </button>
                             ))}
                         </div>
                     </div>
