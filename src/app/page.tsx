@@ -214,7 +214,13 @@ export default function App() {
         return cropData;
     }, []);
 
-  const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+        console.log('handleAspectRatioChange called', {
+            imageRefSrc: imageRef.current?.src,
+            imageRefExists: !!imageRef.current
+        });
+    
+    
         const newAspectRatio = parseFloat(event.target.value);
         setSelectedAspectRatio(newAspectRatio);
         setCropperKey(prevKey => prevKey + 1);
@@ -737,20 +743,25 @@ export default function App() {
                                         className="image-base"
                                         style={{ display: isProcessing && !correctionImage ? 'none' : 'block' }}
                                   />
+
+
                                     <div className="image-overlay">
-                                       <Image
-                                           src={outline}
-                                           alt="Outline"
-                                           style={{ opacity: 0.5,position: 'absolute',
+                                        <img
+                                            src={outline.src}  // 直接使用 .src 获取图片路径
+                                            alt="Outline"
+                                            style={{ 
+                                                opacity: 0.5,
+                                                position: 'absolute',
                                                 top: 0,
-                                               left: 0,
-                                               width: '100%',
-                                               height: '100%', }}
-                                           width={undefined}
-                                           height={undefined}
-                                           loading='lazy'
-                                      />
-                                  </div>
+                                                left: 0,
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'contain', // 添加这个属性
+                                            }}
+                                        />
+                                    </div>
+
+
                                </div>
                             )}
                        </div>
