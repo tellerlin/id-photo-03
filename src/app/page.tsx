@@ -3,12 +3,11 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import 'cropperjs/dist/cropper.css';
 import './globals.css';
-import { removeBackground, Config } from '@imgly/background-removal';
-import Image from 'next/legacy/image';
 import dynamic from 'next/dynamic';
 import { ErrorBoundary } from 'react-error-boundary';
 import outline from '../../public/outline.png';
 import type { CropperRef, AspectRatioOption, ColorOption, ImageInfo, CropData, ScaleFactors } from '@/types';
+import { imageProcessor } from '../utils/imageProcessor';
 
 const CropperComponent = dynamic(() => import('react-cropper'), {
     ssr: false,
@@ -40,8 +39,10 @@ export default function App() {
     const lastProcessedImageData = useRef<ImageInfo | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const scaleRef = useRef<ScaleFactors>({ scaleX: 1, scaleY: 1 });
+    const [isScaleInitialized, setIsScaleInitialized] = useState(false);
+    const isDevelopmentMode = process.env.NODE_ENV !== 'production';
 
-    useEffect(() => {
+   useEffect(() => {
         if (!canvasRef.current) {
             canvasRef.current = document.createElement('canvas') as HTMLCanvasElement;
         }
@@ -83,15 +84,17 @@ export default function App() {
         { name: 'Light Gray', value: '#d3d3d3' },
     ], []);
 
-    const intelligentCrop = useMemo(() => (img: HTMLImageElement, selectedAspectRatio: number, scaleX: number, scaleY: number): CropData => {
+  const intelligentCrop = useCallback((img: HTMLImageElement, selectedAspectRatio: number, scaleX: number, scaleY: number): CropData => {
         const canvas = canvasRef.current;
         if (!canvas) {
+           if(isDevelopmentMode) console.warn('Canvas element is not available for intelligent crop.');
             return { left: 0, top: 0, width: 0, height: 0 };
         }
         canvas.width = img.width;
         canvas.height = img.height;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
+           if (isDevelopmentMode) console.warn('2D rendering context is not available for intelligent crop.');
             return { left: 0, top: 0, width: 0, height: 0 };
         }
         ctx.drawImage(img, 0, 0);
@@ -182,307 +185,166 @@ export default function App() {
 
         cropData.left = Math.max(0, Math.min(cropData.left, img.width - cropData.width));
         cropData.top = Math.max(0, Math.min(cropData.top, img.height - cropData.height));
-        
-           if (process.env.NODE_ENV !== 'production') {
-              console.log('Intelligent Crop Details:', {
-                  imageSize: `${img.width}x${img.height}`,
-                  personArea: {
-                      top: topY,
-                      bottom: bottomY,
-                      left: leftX,
-                      right: rightX,
-                      width: personWidth,
-                      height: bottomY - topY,
+
+         if (isDevelopmentMode) {
+               console.log('Intelligent Crop Details:', {
+                imageSize: `${img.width}x${img.height}`,
+                 personArea: {
+                     top: topY,
+                     bottom: bottomY,
+                     left: leftX,
+                    right: rightX,
+                     width: personWidth,
+                     height: bottomY - topY,
                       centerX: personCenterX
-                  },
-                  cropDetails: {
-                      headTopBuffer,
-                      recommendedHeadHeight: recommendedHeight,
+                 },
+                 cropDetails: {
+                     headTopBuffer,
+                     recommendedHeadHeight: recommendedHeight,
                       cropHeight: cropData.height,
                       cropWidth: cropData.width,
-                      cropTop: cropData.top,
+                     cropTop: cropData.top,
                       cropLeft: cropData.left
-                  },
-                  widthChanges: {
+                 },
+                 widthChanges: {
                       maxChange: maxWidthChange,
-                      maxChangeIndex: maxWidthChangeIndex
-                  }
-              });
+                     maxChangeIndex: maxWidthChangeIndex
+                }
+             });
           }
 
-
         return cropData;
-    }, []);
+   }, [canvasRef, isDevelopmentMode]);
+
 
     const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-        console.log('handleAspectRatioChange called', {
-            imageRefSrc: imageRef.current?.src,
-            imageRefExists: !!imageRef.current
-        });
-    
-    
+         if (isDevelopmentMode) {
+           console.log('handleAspectRatioChange called', {
+                imageRefSrc: imageRef.current?.src,
+                imageRefExists: !!imageRef.current
+            });
+         }
         const newAspectRatio = parseFloat(event.target.value);
         setSelectedAspectRatio(newAspectRatio);
         setCropperKey(prevKey => prevKey + 1);
 
          if (imageRef.current?.src) {
              // Use setTimeout to ensure Cropper is initialized after aspect ratio changes
-            setTimeout(() => {
-                if (cropperRef.current?.cropper) {
-                     const img = imageRef.current;
-                      const autoCropData = intelligentCrop(img, newAspectRatio, scaleRef.current.scaleX, scaleRef.current.scaleY);
-                       if (process.env.NODE_ENV !== 'production') {
-                           console.log('Auto crop data in handleAspectRatioChange:', autoCropData);
-                       }
-                      const scaledCropData = {
-                         left: autoCropData.left * scaleRef.current.scaleX,
-                          top: autoCropData.top * scaleRef.current.scaleY,
-                          width: autoCropData.width * scaleRef.current.scaleX,
+           setTimeout(() => {
+                if (cropperRef.current?.cropper && isScaleInitialized) {
+                    const img = imageRef.current;
+                    if (!img) {
+                       console.warn('Image element is not available in handleAspectRatioChange');
+                        return;
+                    }
+                    const autoCropData = intelligentCrop(
+                        img,
+                        newAspectRatio,
+                        scaleRef.current.scaleX,
+                        scaleRef.current.scaleY,
+                    );
+                     if (isDevelopmentMode) {
+                       console.log('Auto crop data in handleAspectRatioChange:', autoCropData);
+                   }
+                    const scaledCropData = {
+                        left: autoCropData.left * scaleRef.current.scaleX,
+                        top: autoCropData.top * scaleRef.current.scaleY,
+                        width: autoCropData.width * scaleRef.current.scaleX,
                          height: autoCropData.height * scaleRef.current.scaleY
-                      };
-                    if (process.env.NODE_ENV !== 'production') {
-                         console.log('Scaled Crop Data in handleAspectRatioChange:', scaledCropData);
+                    };
+                    if (isDevelopmentMode) {
+                        console.log('Scaled Crop Data in handleAspectRatioChange:', scaledCropData);
                     }
                     cropperRef.current.cropper.setCropBoxData(scaledCropData);
-                     if (process.env.NODE_ENV !== 'production') {
+                     if (isDevelopmentMode) {
                         console.log('Cropper Box Data after setCropBoxData in handleAspectRatioChange:', cropperRef.current.cropper.getCropBoxData());
                     }
                 }
             }, 100);
         }
-    }, [image, intelligentCrop]);
+    }, [image, intelligentCrop,isDevelopmentMode, isScaleInitialized]);
 
     const memoizedHandleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+    
+         await imageProcessor({
+            file,
+            setImage,
+             setProcessedImage,
+            setCroppedImage,
+             setIsProcessing,
+            setProcessingMessage,
+           setShowSuccessMessage,
+            setImageKey,
+            setCorrectionImage,
+            imageRef,
+             cropperRef,
+             canvasRef,
+             scaleRef,
+             selectedAspectRatio,
+             isDevelopmentMode,
+             setIsScaleInitialized
+         });
+    }, [imageProcessor,selectedAspectRatio,isDevelopmentMode]);
 
-        try {
-            setImage(null);
-            setProcessedImage(null);
-            setCroppedImage(null);
-            setIsProcessing(true);
-            setProcessingMessage('Processing image');
-            setShowSuccessMessage(false);
-            setImageKey((prevKey) => prevKey + 1);
-            setCorrectionImage(null);
-
-             if (process.env.NODE_ENV !== 'production') {
-                 console.group('Image Upload and Processing');
-                 console.time('TotalProcessingTime');
-             }
-
-            const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff', 'image/svg+xml'];
-            if (!validTypes.includes(file.type)) {
-                setProcessingMessage(`Unsupported file type. Supported formats: ${validTypes.join(', ')}`);
-                throw new Error(`Unsupported file type. Supported formats: ${validTypes.join(', ')}`);
-            }
-
-            const config: Config = {
-                model: 'medium',
-            };
-
-            const blob = await removeBackground(file, config);
-
-            if (!blob) {
-                setProcessingMessage('Background removal failed.');
-                throw new Error('Background removal failed.');
-            }
-
-            return new Promise<void>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                   if (typeof reader.result !== 'string') {
-                        reject(new Error('File reader result is not a string'));
-                        return;
-                     }
-                    const safeDataURL = reader.result.startsWith('data:image')
-                        ? reader.result
-                        : `data:image/png;base64,${reader.result}`;
-                    const img = imageRef.current;
-                     if (!img) {
-                        reject(new Error('Image element not initialized'));
-                        return;
-                     }
-                    img.onload = () => {
-                        if (process.env.NODE_ENV !== 'production') {
-                            console.log('Image Loaded Details:', {
-                                width: img.width,
-                                height: img.height,
-                                aspectRatio: img.width / img.height
-                            });
-                        }
-                        const canvas = canvasRef.current;
-                         if (!canvas) {
-                             reject(new Error('Canvas element not found'));
-                             return;
-                         }
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        const ctx = canvas.getContext('2d');
-                         if (!ctx) {
-                             reject(new Error('2D rendering context not found'));
-                             return;
-                         }
-                        ctx.drawImage(img, 0, 0);
-
-                        const finalDataURL = canvas.toDataURL('image/png');
-                        setImage(finalDataURL);
-                        setProcessedImage(finalDataURL);
-                        setCroppedImage(finalDataURL);
-                         
-                         lastProcessedImageData.current = {
-                             dataURL: finalDataURL,
-                             width: img.width,
-                             height: img.height,
-                             aspectRatio: img.width / img.height
-                        };
-
-                        setTimeout(() => {
-                            if (cropperRef.current?.cropper) {
-                                const cropper = cropperRef.current.cropper;
-                                const autoCropData = intelligentCrop(img, selectedAspectRatio, scaleRef.current.scaleX, scaleRef.current.scaleY);
-                                if (process.env.NODE_ENV !== 'production') {
-                                    console.log('Auto crop data in memoizedHandleImageUpload:', autoCropData);
-                                }
-                                const imageData = cropper.getImageData();
-                                const canvasData = cropper.getCanvasData();
-                                 if (process.env.NODE_ENV !== 'production') {
-                                      console.log('Image Data:', {
-                                          naturalWidth: imageData.naturalWidth,
-                                         naturalHeight: imageData.naturalHeight,
-                                          width: imageData.width,
-                                          height: imageData.height
-                                      });
-                                      console.log('Canvas Data:', {
-                                           naturalWidth: canvasData.naturalWidth,
-                                           naturalHeight: canvasData.naturalHeight,
-                                           width: canvasData.width,
-                                          height: canvasData.height,
-                                        left: canvasData.left,
-                                          top: canvasData.top
-                                      });
-                                 }
-                                scaleRef.current = {
-                                     scaleX: canvasData.width / imageData.naturalWidth,
-                                     scaleY: canvasData.height / imageData.naturalHeight
-                                 };
-                                 if (process.env.NODE_ENV !== 'production') {
-                                    console.log('Scale Factors:', scaleRef.current);
-                                }
-                                const scaledCropData = {
-                                    left: autoCropData.left * scaleRef.current.scaleX,
-                                    top: autoCropData.top * scaleRef.current.scaleY,
-                                    width: autoCropData.width * scaleRef.current.scaleX,
-                                    height: autoCropData.height * scaleRef.current.scaleY
-                                };
-                                if (process.env.NODE_ENV !== 'production') {
-                                    console.log('Scaled Crop Data in memoizedHandleImageUpload:', scaledCropData);
-                                }
-                                 cropper.setCropBoxData(scaledCropData);
-                                  if (process.env.NODE_ENV !== 'production') {
-                                      console.log('Cropper Box Data after setCropBoxData in memoizedHandleImageUpload:', cropper.getCropBoxData());
-                                  }
-                            }
-                        }, 100);
-
-                        setProcessingMessage('Processing complete');
-                        setShowSuccessMessage(true);
-                        setTimeout(() => {
-                            setShowSuccessMessage(false);
-                        }, 3000);
-                          if (process.env.NODE_ENV !== 'production') {
-                             console.timeEnd('TotalProcessingTime');
-                            console.groupEnd();
-                         }
-                        resolve();
-                    };
-
-                     img.onerror = (error) => {
-                          console.error('Image Loading Failed', error);
-                        setIsProcessing(false);
-                        setProcessingMessage('Image loading failed.');
-                         reject(new Error('Image loading failed'));
-                     };
-
-                    img.src = safeDataURL;
-                };
-                reader.onerror = () => {
-                    console.error('File Reading Failed');
-                    setIsProcessing(false);
-                   setProcessingMessage('File reading failed.');
-                    reject(new Error('File reading failed'));
-                };
-                reader.readAsDataURL(blob);
-            });
-        } catch (error: any) {
-            console.error('Image Processing Error:', error);
-            setProcessingMessage(error.message || 'Processing failed');
-            setImage(null);
-            setProcessedImage(null);
-            setCroppedImage(null);
-            setCorrectionImage(null);
-        } finally {
-            setIsProcessing(false);
-        }
-    }, [intelligentCrop, selectedAspectRatio]);
-
-     const handleCropChange = useCallback(() => {
+    const handleCropChange = useCallback(() => {
         if (!cropperRef.current?.cropper || !image) {
-            console.warn('Cropper or image not ready');
+            console.warn('Cropper or image not ready for crop change');
             return;
-        }
+         }
         try {
             const cropper = cropperRef.current.cropper;
-            const croppedCanvas = cropper.getCroppedCanvas();
+             const croppedCanvas = cropper.getCroppedCanvas();
             const croppedImageDataURL = croppedCanvas.toDataURL('image/png');
-            setCorrectionImage(croppedImageDataURL);
+           setCorrectionImage(croppedImageDataURL);
 
-             const img = typeof window !== 'undefined' ? new window.Image() : null;
-              if (!img) {
-                 console.error('Cannot create Image object');
-                  return;
-              }
-             img.onload = () => {
+           const img = typeof window !== 'undefined' ? new window.Image() : null;
+           if (!img) {
+               console.error('Cannot create Image object');
+               return;
+          }
+            img.onload = () => {
                 const canvas = canvasRef.current;
                  if (!canvas) {
-                     console.error('Canvas element not found');
+                    console.error('Canvas element not found');
                      return;
-                 }
+               }
                 canvas.width = img.width;
                  canvas.height = img.height;
-                 const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d');
                 if (!ctx) {
-                     console.error('2D rendering context not found');
+                   console.error('2D rendering context not found');
                      return;
-                }
+                 }
 
-                ctx.fillStyle = lastProcessedImageData.current?.backgroundColor || backgroundColor;
+                ctx.fillStyle = lastProcessedImageData?.current?.backgroundColor || backgroundColor;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0);
                 const finalImageDataURL = canvas.toDataURL('image/png');
-                 setCroppedImage(finalImageDataURL);
-            };
+               setCroppedImage(finalImageDataURL);
+           };
             img.onerror = (error) => {
-                 console.error('Error loading cropped image', error);
+                console.error('Error loading cropped image', error);
                 setProcessingMessage('Error loading cropped image');
             };
-            img.src = croppedImageDataURL;
+           img.src = croppedImageDataURL;
         } catch (error: any) {
            console.error('Error updating preview:', error);
             setProcessingMessage('Error updating preview.');
         }
-    }, [image, backgroundColor]);
+     }, [image, backgroundColor]);
 
     const handleDownload = useCallback(async () => {
         if (!croppedImage) return;
 
         try {
-            const response = await fetch(croppedImage);
+           const response = await fetch(croppedImage);
             const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
+             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = 'id-photo.png';
+             link.download = 'id-photo.png';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -493,7 +355,7 @@ export default function App() {
             setTimeout(() => {
                 setProcessingMessage('');
             }, 3000);
-        }
+         }
     }, [croppedImage]);
 
     const handleBackgroundChange = useCallback(async (color: string) => {
@@ -503,22 +365,22 @@ export default function App() {
             setProcessingMessage('Changing background color');
             setBackgroundColor(color);
 
-            const cropper = cropperRef.current.cropper;
-             const croppedCanvas = cropper.getCroppedCanvas({
+             const cropper = cropperRef.current.cropper;
+           const croppedCanvas = cropper.getCroppedCanvas({
                  width: cropper.getImageData().naturalWidth,
                 height: cropper.getImageData().naturalHeight,
             });
-            const canvas = canvasRef.current;
-              if (!canvas) {
-                 console.error('Canvas element not found');
-                  return;
-              }
-            canvas.width = croppedCanvas.width;
-             canvas.height = croppedCanvas.height;
+           const canvas = canvasRef.current;
+            if (!canvas) {
+               console.error('Canvas element not found');
+                 return;
+           }
+             canvas.width = croppedCanvas.width;
+            canvas.height = croppedCanvas.height;
             const ctx = canvas.getContext('2d');
-            if (!ctx) {
+           if (!ctx) {
                 console.error('2D rendering context not found');
-                return;
+                 return;
             }
 
             ctx.fillStyle = color;
@@ -526,78 +388,92 @@ export default function App() {
            ctx.drawImage(croppedCanvas, 0, 0);
             const newImageDataURL = canvas.toDataURL('image/png');
             setProcessedImage(newImageDataURL);
-            setCroppedImage(newImageDataURL);
-            
-            lastProcessedImageData.current = {
-                 dataURL: newImageDataURL,
-                width: canvas.width,
-                 height: canvas.height,
-                aspectRatio: canvas.width / canvas.height,
-                 backgroundColor: color
-            };
+           setCroppedImage(newImageDataURL);
+
+            if(lastProcessedImageData.current){
+               lastProcessedImageData.current = {
+                     ...lastProcessedImageData.current,
+                     dataURL: newImageDataURL,
+                      width: canvas.width,
+                     height: canvas.height,
+                    aspectRatio: canvas.width / canvas.height,
+                     backgroundColor: color
+              };
+            }
+
             setProcessingMessage('Processing complete');
-             setShowSuccessMessage(true);
-           setTimeout(() => {
+            setShowSuccessMessage(true);
+            setTimeout(() => {
                 setShowSuccessMessage(false);
             }, 3000);
-         } catch (error: any) {
+       } catch (error: any) {
             console.error('Background change error:', error);
             setProcessingMessage('Background change error.');
         } finally {
             setIsProcessing(false);
-         }
-    }, [image]);
+        }
+   }, [image]);
 
-   const memoizedIntelligentCrop = useMemo(() => intelligentCrop, [intelligentCrop]);
+
     useEffect(() => {
-         console.log('Image state changed:', {
-             image,
-             imageRefCurrent: imageRef.current,
-             imageRefSrc: imageRef.current?.src
-         });
+        if (isDevelopmentMode) {
+            console.log('Image state changed:', {
+                image,
+                 imageRefCurrent: imageRef.current,
+                imageRefSrc: imageRef.current?.src
+            });
+        }
 
-        if (image) {
+       if (image) {
             try {
-                 const img = imageRef.current;
-                if (!img) {
-                     console.warn('Image element not initialized');
+                const img = imageRef.current;
+                 if (!img) {
+                    console.warn('Image element not initialized');
                      return;
                 }
-                img.src = image;
+                 img.src = image;
                 img.onload = () => {
-                    if (cropperRef.current?.cropper) {
-                         const autoCropData = memoizedIntelligentCrop(img, selectedAspectRatio, scaleRef.current.scaleX, scaleRef.current.scaleY);
-                          if (process.env.NODE_ENV !== 'production') {
-                              console.log('Auto crop data in useEffect:', autoCropData);
-                          }
-                        const scaledCropData = {
-                           left: autoCropData.left * scaleRef.current.scaleX,
-                            top: autoCropData.top * scaleRef.current.scaleY,
-                            width: autoCropData.width * scaleRef.current.scaleX,
-                            height: autoCropData.height * scaleRef.current.scaleY
-                         };
-                        if (process.env.NODE_ENV !== 'production') {
-                            console.log('Scaled Crop Data in useEffect:', scaledCropData);
-                        }
-                        cropperRef.current.cropper.setCropBoxData(scaledCropData);
-                       if (process.env.NODE_ENV !== 'production') {
-                           console.log('Cropper Box Data after setCropBoxData in useEffect:', cropperRef.current.cropper.getCropBoxData());
-                       }
-                    }
-                };
+                  setTimeout(()=>{
+                         if (cropperRef.current?.cropper && isScaleInitialized) {
+                             const autoCropData = intelligentCrop(
+                                img,
+                                  selectedAspectRatio,
+                                 scaleRef.current.scaleX,
+                                 scaleRef.current.scaleY,
+                            );
+                            if (isDevelopmentMode) {
+                                 console.log('Auto crop data in useEffect:', autoCropData);
+                            }
+                            const scaledCropData = {
+                                 left: autoCropData.left * scaleRef.current.scaleX,
+                                top: autoCropData.top * scaleRef.current.scaleY,
+                                  width: autoCropData.width * scaleRef.current.scaleX,
+                                 height: autoCropData.height * scaleRef.current.scaleY
+                            };
+                            if (isDevelopmentMode) {
+                                console.log('Scaled Crop Data in useEffect:', scaledCropData);
+                           }
+                             cropperRef.current.cropper.setCropBoxData(scaledCropData);
+                            if (isDevelopmentMode) {
+                              console.log('Cropper Box Data after setCropBoxData in useEffect:', cropperRef.current.cropper.getCropBoxData());
+                            }
+                      }
+                    },100)
 
-                img.onerror = (error) => {
+                 };
+
+                 img.onerror = (error) => {
                    console.error('Image load error:', error);
                     setProcessingMessage('Failed to load image.');
                    setTimeout(() => {
-                        setProcessingMessage('');
+                       setProcessingMessage('');
                     }, 3000);
                    setImage(null);
                     setProcessedImage(null);
                    setCroppedImage(null);
-                   setCorrectionImage(null);
+                    setCorrectionImage(null);
                 };
-           } catch (error) {
+            } catch (error) {
                 console.error('Image processing error:', error);
                 setProcessingMessage('Failed to process image.');
                  setTimeout(() => {
@@ -605,12 +481,11 @@ export default function App() {
                 }, 3000);
                 setImage(null);
                 setProcessedImage(null);
-                 setCroppedImage(null);
-                setCorrectionImage(null);
+                setCroppedImage(null);
+               setCorrectionImage(null);
             }
         }
-    }, [image, memoizedIntelligentCrop, selectedAspectRatio]);
-
+    }, [image, intelligentCrop, selectedAspectRatio, isDevelopmentMode, isScaleInitialized]);
 
     return (
         <ErrorBoundary FallbackComponent={ErrorFallback}>
@@ -749,14 +624,15 @@ export default function App() {
                                         <img
                                             src={outline.src}  // 直接使用 .src 获取图片路径
                                             alt="Outline"
-                                            style={{ 
+                                            style={{
                                                 opacity: 0.5,
                                                 position: 'absolute',
                                                 top: 0,
                                                 left: 0,
                                                 width: '100%',
                                                 height: '100%',
-                                                objectFit: 'contain', // 添加这个属性
+                                                objectFit: 'fill', // 添加这个属性
+                                                objectPosition: 'center',
                                             }}
                                         />
                                     </div>
@@ -812,29 +688,29 @@ export default function App() {
                     <div style={{ textAlign: 'center', marginTop: '2rem' }}>
                        <button
                             onClick={handleDownload}
-                           className={`button button-primary ${isProcessing ? 'loading-button' : ''}`}
-                            disabled={isProcessing}
-                       >
-                           <svg
-                                width="20"
-                                height="20"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                style={{ marginRight: '0.5rem' }}
-                           >
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="7 10 12 15 17 10" />
-                                <line x1="12" y1="15" x2="12" y2="3" />
-                           </svg>
-                            Download photo
-                        </button>
-                    </div>
-                )}
-            </div>
-        </ErrorBoundary>
-    );
-}
+                            className={`button button-primary ${isProcessing ? 'loading-button' : ''}`}
+                             disabled={isProcessing}
+                        >
+                            <svg
+                                 width="20"
+                                 height="20"
+                                 viewBox="0 0 24 24"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 strokeWidth="2"
+                                 strokeLinecap="round"
+                                 strokeLinejoin="round"
+                                 style={{ marginRight: '0.5rem' }}
+                            >
+                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                 <polyline points="7 10 12 15 17 10" />
+                                 <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                             Download photo
+                         </button>
+                     </div>
+                 )}
+             </div>
+         </ErrorBoundary>
+     );
+ }
