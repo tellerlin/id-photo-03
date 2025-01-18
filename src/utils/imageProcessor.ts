@@ -18,7 +18,8 @@ interface ImageProcessorProps {
      scaleRef: React.MutableRefObject<ScaleFactors>;
      selectedAspectRatio: number;
     isDevelopmentMode: boolean
-    setIsScaleInitialized: React.Dispatch<React.SetStateAction<boolean>>
+    setIsScaleInitialized: React.Dispatch<React.SetStateAction<boolean>>;
+    setIsCropperReady:React.Dispatch<React.SetStateAction<boolean>>
 }
 
 
@@ -38,7 +39,8 @@ export const imageProcessor = async ({
     scaleRef,
      selectedAspectRatio,
     isDevelopmentMode,
-    setIsScaleInitialized
+    setIsScaleInitialized,
+    setIsCropperReady
 }: ImageProcessorProps) => {
     try {
         setImage(null);
@@ -158,6 +160,8 @@ export const imageProcessor = async ({
                                  selectedAspectRatio,
                                  scaleRef.current.scaleX,
                                  scaleRef.current.scaleY,
+                                 canvasRef.current,
+                                 isDevelopmentMode
                             );
                             if (isDevelopmentMode) {
                                 console.log('Auto crop data in memoizedHandleImageUpload:', autoCropData);
@@ -176,6 +180,7 @@ export const imageProcessor = async ({
                                  console.log('Cropper Box Data after setCropBoxData in memoizedHandleImageUpload:', cropper.getCropBoxData());
                              }
                         }
+                        setIsCropperReady(true);
                     }, 100);
 
 
@@ -196,6 +201,7 @@ export const imageProcessor = async ({
                    setIsProcessing(false);
                    setProcessingMessage('Image loading failed.');
                     reject(new Error('Image loading failed'));
+                     setIsCropperReady(false)
                 };
                 img.src = safeDataURL;
             };
@@ -204,6 +210,7 @@ export const imageProcessor = async ({
                setIsProcessing(false);
                 setProcessingMessage('File reading failed.');
                 reject(new Error('File reading failed'));
+                 setIsCropperReady(false)
             };
             reader.readAsDataURL(blob);
         });
@@ -214,8 +221,8 @@ export const imageProcessor = async ({
         setProcessedImage(null);
          setCroppedImage(null);
          setCorrectionImage(null);
+         setIsCropperReady(false)
     } finally {
          setIsProcessing(false);
      }
 };
-

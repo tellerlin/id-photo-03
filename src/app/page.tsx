@@ -43,6 +43,8 @@ export default function App() {
     const scaleRef = useRef<ScaleFactors>({ scaleX: 1, scaleY: 1 });
     const [isScaleInitialized, setIsScaleInitialized] = useState(false);
     const isDevelopmentMode = process.env.NODE_ENV !== 'production';
+    const [isCropperReady, setIsCropperReady] = useState(false);
+    const [cropperCanvasScale, setCropperCanvasScale] = useState({ scaleX: 1, scaleY: 1 });
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -75,16 +77,16 @@ export default function App() {
         const currentCroppedImage = croppedImage;
 
 
-        if (imageRef.current?.src && isScaleInitialized) {
-            setTimeout(() => {
+        if (imageRef.current?.src && isScaleInitialized && isCropperReady) {
+           setTimeout(() => {
                 if (cropperRef.current?.cropper) {
                     const img = imageRef.current;
                     if (!img) return;
-                   if (isDevelopmentMode) {
+                     if (isDevelopmentMode) {
                         console.log('Cropper Data before intelligentCrop (handleAspectRatioChange):', {
                             imageData: cropperRef.current.cropper.getImageData(),
-                           canvasData: cropperRef.current.cropper.getCanvasData(),
-                            scaleRef: scaleRef.current
+                            canvasData: cropperRef.current.cropper.getCanvasData(),
+                           scaleRef: scaleRef.current
                         });
                     }
                     const autoCropData = intelligentCrop(
@@ -96,16 +98,17 @@ export default function App() {
                         isDevelopmentMode
                     );
 
+                   const canvasData = cropperRef.current.cropper.getCanvasData();
 
-                    const scaledCropData = {
-                        left: autoCropData.left * scaleRef.current.scaleX,
-                        top: autoCropData.top * scaleRef.current.scaleY,
-                        width: autoCropData.width * scaleRef.current.scaleX,
-                        height: autoCropData.height * scaleRef.current.scaleY
+
+                   const scaledCropData = {
+                       left: autoCropData.left * (canvasData.width /  img.naturalWidth),
+                        top: autoCropData.top * (canvasData.height / img.naturalHeight),
+                        width: autoCropData.width *  (canvasData.width /  img.naturalWidth),
+                        height: autoCropData.height * (canvasData.height / img.naturalHeight),
                     };
 
-
-                    cropperRef.current.cropper.setCropBoxData(scaledCropData);
+                   cropperRef.current.cropper.setCropBoxData(scaledCropData);
 
 
                     // 恢复之前的图像
@@ -121,7 +124,7 @@ export default function App() {
                 }
             }, 100);
         }
-    }, [image, isDevelopmentMode, isScaleInitialized, selectedAspectRatio, correctionImage, croppedImage]);
+    }, [image, isDevelopmentMode, isScaleInitialized, selectedAspectRatio, correctionImage, croppedImage,isCropperReady]);
 
 
     const memoizedHandleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,7 +148,8 @@ export default function App() {
              scaleRef,
              selectedAspectRatio,
              isDevelopmentMode,
-             setIsScaleInitialized
+             setIsScaleInitialized,
+             setIsCropperReady
            });
         } catch (error) {
             console.error('Image processing error:', error);
@@ -157,6 +161,7 @@ export default function App() {
             setProcessedImage(null);
             setCroppedImage(null);
             setCorrectionImage(null);
+             setIsCropperReady(false)
         }
     }, [imageProcessor,selectedAspectRatio,isDevelopmentMode]);
 
@@ -296,7 +301,7 @@ export default function App() {
             });
         }
 
-       if (image && isScaleInitialized) {
+       if (image && isScaleInitialized && isCropperReady) {
             try {
                  const img = imageRef.current;
                 if (!img) {
@@ -317,24 +322,22 @@ export default function App() {
                             const autoCropData = intelligentCrop(
                                  img,
                                  selectedAspectRatio,
-                                 img.width / img.naturalWidth,
-                                 img.height / img.naturalHeight,
+                                 scaleRef.current.scaleX,
+                                 scaleRef.current.scaleY,
                                 canvasRef.current,
                                 isDevelopmentMode
                            );
-                           if (isDevelopmentMode) {
-                                console.log('Auto crop data in useEffect:', autoCropData);
-                           }
+                           
+                           const canvasData = cropperRef.current.cropper.getCanvasData();
+
                             const scaledCropData = {
-                                left: autoCropData.left *  (img.width / img.naturalWidth),
-                                top: autoCropData.top * (img.height / img.naturalHeight),
-                                  width: autoCropData.width * (img.width / img.naturalWidth),
-                                 height: autoCropData.height * (img.height / img.naturalHeight)
-                            };
-                           if (isDevelopmentMode) {
-                                console.log('Scaled Crop Data in useEffect:', scaledCropData);
-                           }
+                                left: autoCropData.left * (canvasData.width /  img.naturalWidth),
+                                top: autoCropData.top * (canvasData.height / img.naturalHeight),
+                                width: autoCropData.width *  (canvasData.width /  img.naturalWidth),
+                                height: autoCropData.height * (canvasData.height / img.naturalHeight),
+                             };
                             cropperRef.current.cropper.setCropBoxData(scaledCropData);
+                           
                             if (isDevelopmentMode) {
                                console.log('Cropper Box Data after setCropBoxData in useEffect:', cropperRef.current.cropper.getCropBoxData());
                            }
@@ -353,6 +356,7 @@ export default function App() {
                    setProcessedImage(null);
                   setCroppedImage(null);
                   setCorrectionImage(null);
+                   setIsCropperReady(false)
                };
            } catch (error) {
                  console.error('Image processing error:', error);
@@ -364,9 +368,10 @@ export default function App() {
                  setProcessedImage(null);
                  setCroppedImage(null);
                 setCorrectionImage(null);
+                setIsCropperReady(false)
            }
        }
-    }, [image, isScaleInitialized,selectedAspectRatio,isDevelopmentMode]);
+    }, [image, isScaleInitialized,selectedAspectRatio,isDevelopmentMode,isCropperReady]);
 
     return (
         <ErrorBoundary FallbackComponent={ErrorFallback}>
@@ -488,6 +493,7 @@ export default function App() {
                                    autoCropArea={1}
                                    viewMode={1}
                                     onInitialized={() => {
+                                          setIsCropperReady(true);
                                          if (cropperRef.current?.cropper && isDevelopmentMode) {
                                             console.log('Cropper Initialized:', {
                                                 imageData: cropperRef.current.cropper.getImageData(),
@@ -495,6 +501,14 @@ export default function App() {
                                                 cropBoxData: cropperRef.current.cropper.getCropBoxData(),
                                                  scaleRef: scaleRef.current
                                             });
+                                            
+                                            const canvasData = cropperRef.current.cropper.getCanvasData();
+                                                if(imageRef.current){
+                                                   setCropperCanvasScale({
+                                                        scaleX: canvasData.width / imageRef.current.naturalWidth,
+                                                        scaleY: canvasData.height / imageRef.current.naturalHeight,
+                                                     })
+                                                }
                                         }
                                     }}
                                 />

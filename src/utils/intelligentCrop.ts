@@ -144,6 +144,9 @@ export const intelligentCrop = (
     cropData.left = Math.max(0, Math.min(cropData.left, img.width - cropData.width));
     cropData.top = Math.max(0, Math.min(cropData.top, img.height - cropData.height));
 
+
+
+
      if (isDevelopmentMode) {
            console.log('Intelligent Crop Details:', {
               imageSize: `${img.width}x${img.height}`,
