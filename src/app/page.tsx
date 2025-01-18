@@ -8,6 +8,8 @@ import { ErrorBoundary } from 'react-error-boundary';
 import outline from '../../public/outline.png';
 import type { CropperRef, AspectRatioOption, ColorOption, ImageInfo, CropData, ScaleFactors } from '@/types';
 import { imageProcessor } from '../utils/imageProcessor';
+import { aspectRatioOptions, presetColors } from '../constants';
+import { intelligentCrop } from '../utils/intelligentCrop';
 
 const CropperComponent = dynamic(() => import('react-cropper'), {
     ssr: false,
@@ -42,7 +44,7 @@ export default function App() {
     const [isScaleInitialized, setIsScaleInitialized] = useState(false);
     const isDevelopmentMode = process.env.NODE_ENV !== 'production';
 
-   useEffect(() => {
+    useEffect(() => {
         if (!canvasRef.current) {
             canvasRef.current = document.createElement('canvas') as HTMLCanvasElement;
         }
@@ -60,215 +62,74 @@ export default function App() {
     }, []);
 
 
-    const aspectRatioOptions = useMemo<AspectRatioOption[]>(() => [
-        { value: 1 / 1, label: '1:1' },
-        { value: 2 / 3, label: '2:3' },
-        { value: 3 / 4, label: '3:4' },
-        { value: 4 / 3, label: '4:3' },
-        { value: 5 / 7, label: '5:7' },
-        { value: 7 / 9, label: '7:9' },
-        { value: 9 / 7, label: '9:7' },
-    ], []);
-
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<number>(3 / 4);
 
-    const presetColors = useMemo<ColorOption[]>(() => [
-        { name: 'White', value: '#ffffff' },
-        { name: 'Red', value: '#ff0000' },
-        { name: 'Blue', value: '#0000ff' },
-        { name: 'Bright Blue', value: '#4285F4' },
-        { name: 'Light Blue', value: '#add8e6' },
-        { name: 'Sky Blue', value: '#87ceeb' },
-        { name: 'Navy Blue', value: '#000080' },
-        { name: 'Gray', value: '#808080' },
-        { name: 'Light Gray', value: '#d3d3d3' },
-    ], []);
-
-  const intelligentCrop = useCallback((img: HTMLImageElement, selectedAspectRatio: number, scaleX: number, scaleY: number): CropData => {
-        const canvas = canvasRef.current;
-        if (!canvas) {
-           if(isDevelopmentMode) console.warn('Canvas element is not available for intelligent crop.');
-            return { left: 0, top: 0, width: 0, height: 0 };
-        }
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-           if (isDevelopmentMode) console.warn('2D rendering context is not available for intelligent crop.');
-            return { left: 0, top: 0, width: 0, height: 0 };
-        }
-        ctx.drawImage(img, 0, 0);
-
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
-
-        let topY = canvas.height,
-            bottomY = 0,
-            leftX = canvas.width,
-            rightX = 0;
-
-        const rowCenters: number[] = [];
-        const rowWidths: number[] = [];
-        const minPixelThreshold = 20;
-
-        for (let y = 0; y < canvas.height; y++) {
-            let rowLeftX = canvas.width;
-            let rowRightX = 0;
-            let rowPixelCount = 0;
-            let rowCenterX = 0;
-            let rowHasValidPixels = false;
-
-            for (let x = 0; x < canvas.width; x++) {
-                const index = (y * canvas.width + x) * 4;
-                const alpha = data[index + 3];
-
-                if (alpha > 10) {
-                    rowHasValidPixels = true;
-                    topY = Math.min(topY, y);
-                    bottomY = Math.max(bottomY, y);
-                    leftX = Math.min(leftX, x);
-                    rightX = Math.max(rightX, x);
-
-                    rowLeftX = Math.min(rowLeftX, x);
-                    rowRightX = Math.max(rowRightX, x);
-                    rowCenterX += x;
-                    rowPixelCount++;
-                }
-            }
-
-            if (rowPixelCount >= minPixelThreshold && rowHasValidPixels) {
-                rowWidths.push(rowRightX - rowLeftX);
-                rowCenters.push(rowCenterX / rowPixelCount);
-            }
-        }
-
-        const widthChanges: number[] = [];
-        for (let i = 1; i < rowWidths.length; i++) {
-            if (rowWidths[i - 1] > 0) {
-                const changeRate = (rowWidths[i] - rowWidths[i - 1]) / rowWidths[i - 1];
-                widthChanges.push(changeRate);
-            }
-        }
-
-        let headEndY = topY;
-        let shoulderEndY = bottomY;
-        let maxWidthChangeIndex = -1;
-        let maxWidthChange = 0;
-
-        widthChanges.forEach((change, index) => {
-            if (change > maxWidthChange) {
-                maxWidthChange = change;
-                maxWidthChangeIndex = index;
-            }
-        });
-
-        if (maxWidthChangeIndex !== -1) {
-            headEndY = topY + maxWidthChangeIndex;
-            shoulderEndY = Math.min(bottomY, headEndY + (bottomY - topY) * 0.3);
-        }
-
-        const personCenterX = rowCenters.reduce((sum, center) => sum + center, 0) / rowCenters.length;
-        const personWidth = rightX - leftX;
-        const personHeight = bottomY - topY;
-
-        const headTopBuffer = personHeight * 0.15;
-        const shoulderBottomBuffer = personHeight * 0.2;
-        const recommendedHeight = (shoulderEndY - headEndY) + headTopBuffer + shoulderBottomBuffer;
-        let recommendedWidth = recommendedHeight * selectedAspectRatio;
-
-        const cropData: CropData = {
-            left: personCenterX - (recommendedWidth / 2),
-            top: Math.max(topY, headEndY - headTopBuffer),
-            width: recommendedWidth,
-            height: recommendedHeight
-        };
-
-        cropData.left = Math.max(0, Math.min(cropData.left, img.width - cropData.width));
-        cropData.top = Math.max(0, Math.min(cropData.top, img.height - cropData.height));
-
-         if (isDevelopmentMode) {
-               console.log('Intelligent Crop Details:', {
-                imageSize: `${img.width}x${img.height}`,
-                 personArea: {
-                     top: topY,
-                     bottom: bottomY,
-                     left: leftX,
-                    right: rightX,
-                     width: personWidth,
-                     height: bottomY - topY,
-                      centerX: personCenterX
-                 },
-                 cropDetails: {
-                     headTopBuffer,
-                     recommendedHeadHeight: recommendedHeight,
-                      cropHeight: cropData.height,
-                      cropWidth: cropData.width,
-                     cropTop: cropData.top,
-                      cropLeft: cropData.left
-                 },
-                 widthChanges: {
-                      maxChange: maxWidthChange,
-                     maxChangeIndex: maxWidthChangeIndex
-                }
-             });
-          }
-
-        return cropData;
-   }, [canvasRef, isDevelopmentMode]);
-
-
-    const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-         if (isDevelopmentMode) {
-           console.log('handleAspectRatioChange called', {
-                imageRefSrc: imageRef.current?.src,
-                imageRefExists: !!imageRef.current
-            });
-         }
+     const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
         const newAspectRatio = parseFloat(event.target.value);
         setSelectedAspectRatio(newAspectRatio);
         setCropperKey(prevKey => prevKey + 1);
 
-         if (imageRef.current?.src) {
-             // Use setTimeout to ensure Cropper is initialized after aspect ratio changes
-           setTimeout(() => {
-                if (cropperRef.current?.cropper && isScaleInitialized) {
+
+        // 保持原有的 correctionImage 和 croppedImage
+        const currentCorrectionImage = correctionImage;
+        const currentCroppedImage = croppedImage;
+
+
+        if (imageRef.current?.src && isScaleInitialized) {
+            setTimeout(() => {
+                if (cropperRef.current?.cropper) {
                     const img = imageRef.current;
-                    if (!img) {
-                       console.warn('Image element is not available in handleAspectRatioChange');
-                        return;
+                    if (!img) return;
+                   if (isDevelopmentMode) {
+                        console.log('Cropper Data before intelligentCrop (handleAspectRatioChange):', {
+                            imageData: cropperRef.current.cropper.getImageData(),
+                           canvasData: cropperRef.current.cropper.getCanvasData(),
+                            scaleRef: scaleRef.current
+                        });
                     }
                     const autoCropData = intelligentCrop(
                         img,
-                        newAspectRatio,
+                         newAspectRatio,
                         scaleRef.current.scaleX,
                         scaleRef.current.scaleY,
+                        canvasRef.current,
+                        isDevelopmentMode
                     );
-                     if (isDevelopmentMode) {
-                       console.log('Auto crop data in handleAspectRatioChange:', autoCropData);
-                   }
+
+
                     const scaledCropData = {
                         left: autoCropData.left * scaleRef.current.scaleX,
                         top: autoCropData.top * scaleRef.current.scaleY,
                         width: autoCropData.width * scaleRef.current.scaleX,
-                         height: autoCropData.height * scaleRef.current.scaleY
+                        height: autoCropData.height * scaleRef.current.scaleY
                     };
-                    if (isDevelopmentMode) {
-                        console.log('Scaled Crop Data in handleAspectRatioChange:', scaledCropData);
-                    }
+
+
                     cropperRef.current.cropper.setCropBoxData(scaledCropData);
+
+
+                    // 恢复之前的图像
+                    if (currentCorrectionImage) {
+                        setCorrectionImage(currentCorrectionImage);
+                    }
+                    if (currentCroppedImage) {
+                        setCroppedImage(currentCroppedImage);
+                    }
                      if (isDevelopmentMode) {
                         console.log('Cropper Box Data after setCropBoxData in handleAspectRatioChange:', cropperRef.current.cropper.getCropBoxData());
                     }
                 }
             }, 100);
         }
-    }, [image, intelligentCrop,isDevelopmentMode, isScaleInitialized]);
+    }, [image, isDevelopmentMode, isScaleInitialized, selectedAspectRatio, correctionImage, croppedImage]);
+
 
     const memoizedHandleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
     
-         await imageProcessor({
+         try {
+             await imageProcessor({
             file,
             setImage,
              setProcessedImage,
@@ -285,7 +146,18 @@ export default function App() {
              selectedAspectRatio,
              isDevelopmentMode,
              setIsScaleInitialized
-         });
+           });
+        } catch (error) {
+            console.error('Image processing error:', error);
+           setIsProcessing(false);
+            setProcessingMessage('Image processing failed');
+            
+            // 重置所有相关状态
+            setImage(null);
+            setProcessedImage(null);
+            setCroppedImage(null);
+            setCorrectionImage(null);
+        }
     }, [imageProcessor,selectedAspectRatio,isDevelopmentMode]);
 
     const handleCropChange = useCallback(() => {
@@ -424,68 +296,77 @@ export default function App() {
             });
         }
 
-       if (image) {
+       if (image && isScaleInitialized) {
             try {
-                const img = imageRef.current;
-                 if (!img) {
-                    console.warn('Image element not initialized');
+                 const img = imageRef.current;
+                if (!img) {
+                     console.warn('Image element not initialized');
                      return;
                 }
-                 img.src = image;
-                img.onload = () => {
-                  setTimeout(()=>{
-                         if (cropperRef.current?.cropper && isScaleInitialized) {
-                             const autoCropData = intelligentCrop(
-                                img,
-                                  selectedAspectRatio,
-                                 scaleRef.current.scaleX,
-                                 scaleRef.current.scaleY,
-                            );
-                            if (isDevelopmentMode) {
-                                 console.log('Auto crop data in useEffect:', autoCropData);
-                            }
+                img.src = image;
+               img.onload = () => {
+                 setTimeout(()=>{
+                        if (cropperRef.current?.cropper) {
+                           if (isDevelopmentMode) {
+                               console.log('Cropper Data before intelligentCrop (useEffect):', {
+                                  imageData: cropperRef.current.cropper.getImageData(),
+                                 canvasData: cropperRef.current.cropper.getCanvasData(),
+                                  scaleRef: scaleRef.current
+                               });
+                           }
+                            const autoCropData = intelligentCrop(
+                                 img,
+                                 selectedAspectRatio,
+                                 img.width / img.naturalWidth,
+                                 img.height / img.naturalHeight,
+                                canvasRef.current,
+                                isDevelopmentMode
+                           );
+                           if (isDevelopmentMode) {
+                                console.log('Auto crop data in useEffect:', autoCropData);
+                           }
                             const scaledCropData = {
-                                 left: autoCropData.left * scaleRef.current.scaleX,
-                                top: autoCropData.top * scaleRef.current.scaleY,
-                                  width: autoCropData.width * scaleRef.current.scaleX,
-                                 height: autoCropData.height * scaleRef.current.scaleY
+                                left: autoCropData.left *  (img.width / img.naturalWidth),
+                                top: autoCropData.top * (img.height / img.naturalHeight),
+                                  width: autoCropData.width * (img.width / img.naturalWidth),
+                                 height: autoCropData.height * (img.height / img.naturalHeight)
                             };
-                            if (isDevelopmentMode) {
+                           if (isDevelopmentMode) {
                                 console.log('Scaled Crop Data in useEffect:', scaledCropData);
                            }
-                             cropperRef.current.cropper.setCropBoxData(scaledCropData);
+                            cropperRef.current.cropper.setCropBoxData(scaledCropData);
                             if (isDevelopmentMode) {
-                              console.log('Cropper Box Data after setCropBoxData in useEffect:', cropperRef.current.cropper.getCropBoxData());
-                            }
-                      }
-                    },100)
+                               console.log('Cropper Box Data after setCropBoxData in useEffect:', cropperRef.current.cropper.getCropBoxData());
+                           }
+                       }
+                   },100)
 
-                 };
-
-                 img.onerror = (error) => {
-                   console.error('Image load error:', error);
-                    setProcessingMessage('Failed to load image.');
-                   setTimeout(() => {
-                       setProcessingMessage('');
-                    }, 3000);
-                   setImage(null);
-                    setProcessedImage(null);
-                   setCroppedImage(null);
-                    setCorrectionImage(null);
                 };
-            } catch (error) {
-                console.error('Image processing error:', error);
-                setProcessingMessage('Failed to process image.');
-                 setTimeout(() => {
-                   setProcessingMessage('');
-                }, 3000);
-                setImage(null);
-                setProcessedImage(null);
-                setCroppedImage(null);
-               setCorrectionImage(null);
-            }
-        }
-    }, [image, intelligentCrop, selectedAspectRatio, isDevelopmentMode, isScaleInitialized]);
+
+                img.onerror = (error) => {
+                  console.error('Image load error:', error);
+                   setProcessingMessage('Failed to load image.');
+                  setTimeout(() => {
+                      setProcessingMessage('');
+                   }, 3000);
+                  setImage(null);
+                   setProcessedImage(null);
+                  setCroppedImage(null);
+                  setCorrectionImage(null);
+               };
+           } catch (error) {
+                 console.error('Image processing error:', error);
+                 setProcessingMessage('Failed to process image.');
+                  setTimeout(() => {
+                    setProcessingMessage('');
+                 }, 3000);
+                 setImage(null);
+                 setProcessedImage(null);
+                 setCroppedImage(null);
+                setCorrectionImage(null);
+           }
+       }
+    }, [image, isScaleInitialized,selectedAspectRatio,isDevelopmentMode]);
 
     return (
         <ErrorBoundary FallbackComponent={ErrorFallback}>
@@ -601,11 +482,21 @@ export default function App() {
                                     ref={cropperRef}
                                    zoomable={false}
                                    zoomOnWheel={false}
-                                   crop={handleCropChange}
-                                   minCropBoxWidth={100}
-                                   minCropBoxHeight={100}
-                                  autoCropArea={1}
+                                    crop={handleCropChange}
+                                    minCropBoxWidth={100}
+                                    minCropBoxHeight={100}
+                                   autoCropArea={1}
                                    viewMode={1}
+                                    onInitialized={() => {
+                                         if (cropperRef.current?.cropper && isDevelopmentMode) {
+                                            console.log('Cropper Initialized:', {
+                                                imageData: cropperRef.current.cropper.getImageData(),
+                                                canvasData: cropperRef.current.cropper.getCanvasData(),
+                                                cropBoxData: cropperRef.current.cropper.getCropBoxData(),
+                                                 scaleRef: scaleRef.current
+                                            });
+                                        }
+                                    }}
                                 />
                            </React.Suspense>
                        </div>
