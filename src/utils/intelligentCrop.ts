@@ -1,15 +1,5 @@
 // src/utils/intelligentCrop.ts
-import type { CropData, ScaleFactors } from '@/types';
-
-interface IntelligentCropProps {
-    img: HTMLImageElement;
-    selectedAspectRatio: number;
-    scaleX: number;
-    scaleY: number;
-    canvasRef: HTMLCanvasElement | null;
-    isDevelopmentMode: boolean;
-}
-
+import type { CropData } from '@/types';
 
 export const intelligentCrop = (
     img: HTMLImageElement,
@@ -52,6 +42,7 @@ export const intelligentCrop = (
 
     const rowCenters: number[] = [];
     const rowWidths: number[] = [];
+    
     const minPixelThreshold = 20;
 
     for (let y = 0; y < canvas.height; y++) {
@@ -120,18 +111,18 @@ export const intelligentCrop = (
     let recommendedWidth = recommendedHeight * selectedAspectRatio;
 
 
-        if (rowCenters.length === 0 || rowWidths.length === 0) {
-            if(isDevelopmentMode){
-              console.warn('No valid pixels detected in the image');
-            }
-             // 返回一个基于图像中心的默认裁剪
-            return {
-                left: img.width * 0.25,
-                top: img.height * 0.2,
-                width: img.width * 0.5,
-                height: img.height * 0.6
-            };
+    if (rowCenters.length === 0 || rowWidths.length === 0) {
+        if (isDevelopmentMode) {
+            console.warn('No valid pixels detected in the image');
         }
+        // 返回一个基于图像中心的默认裁剪
+        return {
+            left: img.width * 0.25,
+            top: img.height * 0.2,
+            width: img.width * 0.5,
+            height: img.height * 0.6
+        };
+    }
 
 
     const cropData: CropData = {
@@ -147,33 +138,32 @@ export const intelligentCrop = (
 
 
 
-     if (isDevelopmentMode) {
-           console.log('Intelligent Crop Details:', {
-              imageSize: `${img.width}x${img.height}`,
-               personArea: {
-                   top: topY,
-                   bottom: bottomY,
-                   left: leftX,
-                  right: rightX,
-                   width: personWidth,
-                   height: bottomY - topY,
-                    centerX: personCenterX
-               },
-               cropDetails: {
-                   headTopBuffer,
-                   recommendedHeadHeight: recommendedHeight,
-                    cropHeight: cropData.height,
-                    cropWidth: cropData.width,
-                   cropTop: cropData.top,
-                    cropLeft: cropData.left
-               },
-               widthChanges: {
-                    maxChange: maxWidthChange,
-                    maxChangeIndex: maxWidthChangeIndex
-               }
-           });
-       }
+    if (isDevelopmentMode) {
+        console.log('Intelligent Crop Details:', {
+            imageSize: `${img.width}x${img.height}`,
+            personArea: {
+                top: topY,
+                bottom: bottomY,
+                left: leftX,
+                right: rightX,
+                width: personWidth,
+                height: bottomY - topY,
+                centerX: personCenterX
+            },
+            cropDetails: {
+                headTopBuffer,
+                recommendedHeadHeight: recommendedHeight,
+                cropHeight: cropData.height,
+                cropWidth: cropData.width,
+                cropTop: cropData.top,
+                cropLeft: cropData.left
+            },
+            widthChanges: {
+                maxChange: maxWidthChange,
+                maxChangeIndex: maxWidthChangeIndex
+            }
+        });
+    }
 
     return cropData;
 };
-
