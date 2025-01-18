@@ -19,7 +19,15 @@ interface ImageProcessorProps {
      selectedAspectRatio: number;
     isDevelopmentMode: boolean
     setIsScaleInitialized: React.Dispatch<React.SetStateAction<boolean>>;
-    setIsCropperReady:React.Dispatch<React.SetStateAction<boolean>>
+    setIsCropperReady:React.Dispatch<React.SetStateAction<boolean>>;
+    intelligentCrop: (
+        img: HTMLImageElement,
+        selectedAspectRatio: number,
+        scaleX: number,
+        scaleY: number,
+        canvasRef: HTMLCanvasElement | null,
+        isDevelopmentMode: boolean
+    ) => CropData;
 }
 
 
@@ -40,7 +48,8 @@ export const imageProcessor = async ({
      selectedAspectRatio,
     isDevelopmentMode,
     setIsScaleInitialized,
-    setIsCropperReady
+    setIsCropperReady,
+    intelligentCrop
 }: ImageProcessorProps) => {
     try {
         setImage(null);

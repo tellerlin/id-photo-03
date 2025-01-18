@@ -66,66 +66,63 @@ export default function App() {
 
     const [selectedAspectRatio, setSelectedAspectRatio] = useState<number>(3 / 4);
 
-     const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleAspectRatioChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
         const newAspectRatio = parseFloat(event.target.value);
+        
+        // 减少状态更新次数
         setSelectedAspectRatio(newAspectRatio);
         setCropperKey(prevKey => prevKey + 1);
-
-
-        // 保持原有的 correctionImage 和 croppedImage
-        const currentCorrectionImage = correctionImage;
-        const currentCroppedImage = croppedImage;
-
-
-        if (imageRef.current?.src && isScaleInitialized && isCropperReady) {
-           setTimeout(() => {
-                if (cropperRef.current?.cropper) {
-                    const img = imageRef.current;
-                    if (!img) return;
-                     if (isDevelopmentMode) {
-                        console.log('Cropper Data before intelligentCrop (handleAspectRatioChange):', {
-                            imageData: cropperRef.current.cropper.getImageData(),
-                            canvasData: cropperRef.current.cropper.getCanvasData(),
-                           scaleRef: scaleRef.current
-                        });
-                    }
-                    const autoCropData = intelligentCrop(
-                        img,
-                         newAspectRatio,
-                        scaleRef.current.scaleX,
-                        scaleRef.current.scaleY,
-                        canvasRef.current,
-                        isDevelopmentMode
-                    );
-
-                   const canvasData = cropperRef.current.cropper.getCanvasData();
-
-
-                   const scaledCropData = {
-                       left: autoCropData.left * (canvasData.width /  img.naturalWidth),
-                        top: autoCropData.top * (canvasData.height / img.naturalHeight),
-                        width: autoCropData.width *  (canvasData.width /  img.naturalWidth),
-                        height: autoCropData.height * (canvasData.height / img.naturalHeight),
-                    };
-
-                   cropperRef.current.cropper.setCropBoxData(scaledCropData);
-
-
-                    // 恢复之前的图像
-                    if (currentCorrectionImage) {
-                        setCorrectionImage(currentCorrectionImage);
-                    }
-                    if (currentCroppedImage) {
-                        setCroppedImage(currentCroppedImage);
-                    }
-                     if (isDevelopmentMode) {
-                        console.log('Cropper Box Data after setCropBoxData in handleAspectRatioChange:', cropperRef.current.cropper.getCropBoxData());
-                    }
-                }
-            }, 100);
-        }
-    }, [image, isDevelopmentMode, isScaleInitialized, selectedAspectRatio, correctionImage, croppedImage,isCropperReady]);
-
+    
+    
+        // 使用可选链和提前返回，减少嵌套
+        if (!imageRef.current?.src || !isScaleInitialized || !isCropperReady) return;
+    
+    
+        const performIntelligentCrop = () => {
+            const cropper = cropperRef.current?.cropper;
+            if (!cropper) return;
+    
+    
+            const img = imageRef.current;
+            if (!img) return;
+    
+    
+            const autoCropData = intelligentCrop(
+                img, 
+                newAspectRatio, 
+                scaleRef.current.scaleX, 
+                scaleRef.current.scaleY, 
+                canvasRef.current, 
+                isDevelopmentMode
+            );
+    
+    
+            const canvasData = cropper.getCanvasData();
+            const scaledCropData = {
+                left: autoCropData.left * (canvasData.width / img.naturalWidth),
+                top: autoCropData.top * (canvasData.height / img.naturalHeight),
+                width: autoCropData.width * (canvasData.width / img.naturalWidth),
+                height: autoCropData.height * (canvasData.height / img.naturalHeight),
+            };
+    
+    
+            cropper.setCropBoxData(scaledCropData);
+        };
+    
+    
+        // 使用 requestAnimationFrame 优化性能
+        requestAnimationFrame(() => {
+            setTimeout(performIntelligentCrop, 100);
+        });
+    }, [
+        image, 
+        isDevelopmentMode, 
+        isScaleInitialized, 
+        selectedAspectRatio, 
+        correctionImage, 
+        croppedImage,
+        isCropperReady
+    ]);
 
     const memoizedHandleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -149,7 +146,8 @@ export default function App() {
              selectedAspectRatio,
              isDevelopmentMode,
              setIsScaleInitialized,
-             setIsCropperReady
+             setIsCropperReady,
+             intelligentCrop
            });
         } catch (error) {
             console.error('Image processing error:', error);
@@ -163,7 +161,7 @@ export default function App() {
             setCorrectionImage(null);
              setIsCropperReady(false)
         }
-    }, [imageProcessor,selectedAspectRatio,isDevelopmentMode]);
+    }, [imageProcessor,selectedAspectRatio,isDevelopmentMode,intelligentCrop]);
 
     const handleCropChange = useCallback(() => {
         if (!cropperRef.current?.cropper || !image) {
